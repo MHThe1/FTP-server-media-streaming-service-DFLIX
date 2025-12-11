@@ -49,6 +49,20 @@ export const api = {
 
   getSubtitleDownloadUrl(subtitleUrl) {
     return `${API_BASE_URL}/subtitles/download?url=${encodeURIComponent(subtitleUrl)}`;
+  },
+
+  async getDirectStreamUrl(filePath) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/direct-stream-url?path=${encodeURIComponent(filePath)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to get direct stream URL: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data.url;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
   }
 };
 

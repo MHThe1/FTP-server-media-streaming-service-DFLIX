@@ -94,6 +94,22 @@ app.get('/api/fileinfo', async (req, res) => {
   }
 });
 
+// Get direct stream URL (for VLC and external players)
+app.get('/api/direct-stream-url', async (req, res) => {
+  try {
+    const filePath = req.query.path;
+    if (!filePath) {
+      return res.status(400).json({ error: 'File path is required' });
+    }
+
+    const directUrl = httpService.getStreamUrl(filePath);
+    res.json({ url: directUrl });
+  } catch (error) {
+    console.error('Error getting direct stream URL:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Configure axios defaults
 axios.defaults.timeout = 10000;
 axios.defaults.headers.common['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';

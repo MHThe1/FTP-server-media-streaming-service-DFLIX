@@ -120,6 +120,8 @@ const MediaPlayerComponent = ({ file }) => {
     position: 'bottom', // 'bottom', 'top', 'middle'
     delay: 0, // in seconds
   })
+  const [codecWarning, setCodecWarning] = useState(null)
+  const [isUnsupportedFormat, setIsUnsupportedFormat] = useState(false)
   const playerRef = useRef(null)
   const subtitleStyleRef = useRef(null)
   const playerContainerRef = useRef(null)
@@ -200,16 +202,64 @@ const MediaPlayerComponent = ({ file }) => {
     return () => clearTimeout(timer)
   }, [file])
 
+  // Check browser codec support
+  const checkCodecSupport = (fileName) => {
+    const name = fileName.toLowerCase()
+    const warnings = []
+    let isUnsupported = false
+    
+    // Check for HEVC/H.265
+    if (name.includes('hevc') || name.includes('h265') || name.includes('x265')) {
+      const video = document.createElement('video')
+      const hevcSupported = video.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0,mp4a.40.2"') || 
+                            video.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0,mp4a.40.2"')
+      if (!hevcSupported) {
+        warnings.push({
+          type: 'hevc',
+          message: 'HEVC (H.265) codec is not supported by your browser. Most browsers only support H.264. Safari on macOS/iOS may support HEVC with hardware acceleration.'
+        })
+        isUnsupported = true
+      }
+    }
+    
+    // Check for MKV container
+    if (name.endsWith('.mkv') || name.includes('.mkv')) {
+      const video = document.createElement('video')
+      const mkvSupported = video.canPlayType('video/x-matroska')
+      if (!mkvSupported) {
+        warnings.push({
+          type: 'mkv',
+          message: 'MKV container format is not natively supported by most browsers. The browser may try to download the entire file instead of streaming it.'
+        })
+        isUnsupported = true
+      }
+    }
+    
+    // Check for 4K/2160p
+    if (name.includes('2160p') || name.includes('4k')) {
+      warnings.push({
+        type: '4k',
+        message: '4K video files are very large. The browser may need to buffer significant amounts of data before playback starts. Ensure you have a fast connection.'
+      })
+    }
+    
+    return { warnings, isUnsupported }
+  }
+
   useEffect(() => {
     if (!file) {
       setError(null)
       setIsVideo(false)
       setIsAudio(false)
       setFileInfo(null)
+      setCodecWarning(null)
+      setIsUnsupportedFormat(false)
       return
     }
 
     setError(null)
+    setCodecWarning(null)
+    setIsUnsupportedFormat(false)
 
     const ext = getFileExtension(file.name)
 
@@ -242,6 +292,17 @@ const MediaPlayerComponent = ({ file }) => {
 
     setIsVideo(videoExts.includes(ext) || (hasNoExtension && (isLargeFile || hasVideoKeywords)))
     setIsAudio(audioExts.includes(ext))
+
+    // Check codec support for video files
+    if (isVideo || hasVideoKeywords || (isLargeFile && !isAudio)) {
+      const { warnings, isUnsupported } = checkCodecSupport(file.name)
+      if (warnings.length > 0) {
+        setCodecWarning(warnings)
+      }
+      setIsUnsupportedFormat(isUnsupported)
+    } else {
+      setIsUnsupportedFormat(false)
+    }
 
     // Load file info
     api
@@ -757,6 +818,111 @@ const MediaPlayerComponent = ({ file }) => {
     )
   }
 
+  // Detect if device is mobile
+  const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+           (window.matchMedia && window.matchMedia('(max-width: 768px)').matches)
+  }
+
+  // Open stream in VLC player
+  const openInVLC = async () => {
+    if (!file) return
+    
+    try {
+      // Get the direct stream URL from the server
+      const directUrl = await api.getDirectStreamUrl(file.path)
+      const isMobile = isMobileDevice()
+      
+      if (isMobile) {
+        // On mobile, try to open VLC directly without downloading
+        try {
+          // Try vlc:// protocol first
+          const vlcUrl = `vlc://${directUrl}`
+          window.location.href = vlcUrl
+          
+          // Also try http/https as fallback (some mobile VLC apps support this)
+          setTimeout(() => {
+            window.location.href = directUrl
+          }, 100)
+        } catch (err) {
+          console.error('Error opening VLC on mobile:', err)
+        }
+      } else {
+        // On desktop, try vlc:// protocol
+        try {
+          const vlcUrl = `vlc://${directUrl}`
+          window.location.href = vlcUrl
+          
+          // Fallback: Create and download .m3u playlist file after a delay
+          setTimeout(() => {
+            createM3UPlaylist(directUrl)
+          }, 1000)
+        } catch (err) {
+          console.error('Error opening VLC:', err)
+          // Fallback to M3U file
+          createM3UPlaylist(directUrl)
+        }
+      }
+    } catch (err) {
+      console.error('Error getting direct stream URL:', err)
+    }
+  }
+
+  // Create and download M3U playlist file for VLC (desktop only)
+  const createM3UPlaylist = (streamUrl) => {
+    const fileName = file?.name || 'stream.mkv'
+    const baseName = fileName.replace(/\.[^/.]+$/, '')
+    
+    // Create M3U playlist content
+    const m3uContent = `#EXTM3U
+#EXTINF:-1,${decodeHtmlEntities(baseName)}
+${streamUrl}
+`
+    
+    // Create blob and download
+    const blob = new Blob([m3uContent], { type: 'application/vnd.apple.mpegurl' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${baseName}.m3u`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  // Copy stream URL to clipboard
+  const copyStreamUrl = async () => {
+    if (!file) return
+    
+    try {
+      // Get the direct stream URL from the server
+      const directUrl = await api.getDirectStreamUrl(file.path)
+      
+      try {
+        await navigator.clipboard.writeText(directUrl)
+        // Silent copy - no alert
+      } catch (err) {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea')
+        textArea.value = directUrl
+        textArea.style.position = 'fixed'
+        textArea.style.opacity = '0'
+        document.body.appendChild(textArea)
+        textArea.select()
+        try {
+          document.execCommand('copy')
+        } catch (err2) {
+          // If copy fails, show URL in console
+          console.log('Stream URL:', directUrl)
+        }
+        document.body.removeChild(textArea)
+      }
+    } catch (err) {
+      console.error('Error getting direct stream URL:', err)
+    }
+  }
+
   // Auto-load subtitles when video metadata is loaded
   const handleLoadedMetadata = async () => {
     if (!isVideo || !file) return
@@ -833,7 +999,7 @@ const MediaPlayerComponent = ({ file }) => {
         ref={playerRef}
         className="w-full h-full netflix-player"
         title={decodeHtmlEntities(file.name)}
-        src={isVideo || shouldTryAsVideo || isAudio ? streamUrl : undefined}
+        src={!isUnsupportedFormat && (isVideo || shouldTryAsVideo || isAudio) ? streamUrl : undefined}
         crossOrigin="anonymous"
         playsInline
         googleCast={{}}
@@ -855,7 +1021,11 @@ const MediaPlayerComponent = ({ file }) => {
           if (error) {
             let errorMsg = "Playback error"
             if (error.code === 4) {
-              errorMsg = "Media format not supported. The browser may not support this codec."
+              errorMsg = "Media format not supported. The browser may not support this codec (HEVC/H.265 in MKV containers is not supported by most browsers)."
+            } else if (error.code === 3) {
+              errorMsg = "Network error. The video may be too large or the connection is too slow."
+            } else if (error.code === 2) {
+              errorMsg = "Network error while loading media."
             } else if (error.message) {
               errorMsg = error.message
             }
@@ -864,6 +1034,32 @@ const MediaPlayerComponent = ({ file }) => {
         }}
         onLoadedData={() => {
           console.log("Video loaded successfully")
+          // Clear codec warnings if video actually loaded
+          if (codecWarning) {
+            console.log("Video loaded despite codec warnings - browser may support it")
+          }
+        }}
+        onLoadStart={() => {
+          console.log("Video loading started")
+        }}
+        onProgress={() => {
+          // Log progress to help debug buffering issues
+          const player = playerRef.current
+          if (player) {
+            const playerEl = player.el || player
+            const mediaElement = playerEl?.querySelector('video') || playerEl?.querySelector('audio')
+            if (mediaElement) {
+              const buffered = mediaElement.buffered
+              if (buffered.length > 0) {
+                const bufferedEnd = buffered.end(buffered.length - 1)
+                const duration = mediaElement.duration
+                if (duration > 0) {
+                  const bufferedPercent = (bufferedEnd / duration) * 100
+                  console.log(`Buffered: ${bufferedPercent.toFixed(1)}% (${bufferedEnd.toFixed(1)}s / ${duration.toFixed(1)}s)`)
+                }
+              }
+            }
+          }
         }}
         onProviderSetup={() => {
           // Ensure persisted volume is applied when provider is ready
@@ -917,7 +1113,7 @@ const MediaPlayerComponent = ({ file }) => {
             )}
           </div>
         </div>
-        {isVideo || shouldTryAsVideo ? (
+        {!isUnsupportedFormat && (isVideo || shouldTryAsVideo) ? (
           <DefaultVideoLayout 
             icons={defaultLayoutIcons}
             slots={{
@@ -925,18 +1121,68 @@ const MediaPlayerComponent = ({ file }) => {
               captionButton: <CustomCaptionButton />,
             }}
           />
-        ) : isAudio ? (
+        ) : !isUnsupportedFormat && isAudio ? (
           <DefaultVideoLayout icons={defaultLayoutIcons} />
         ) : null}
-        {error && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-white bg-black/90 p-4 sm:p-7 rounded-lg z-[100] max-w-[90vw] sm:max-w-[500px] mx-4">
-            <p className="my-2.5 text-sm sm:text-base">{error}</p>
-            <p className="text-xs sm:text-sm text-white/70 mt-3 sm:mt-4">
-              Note: Some formats (like MKV) may not play in all browsers. The browser needs to support the video
-              codec (H.264, VP8, VP9, etc.)
-            </p>
-          </div>
-        )}
+         {codecWarning && codecWarning.length > 0 && (
+           <div className="absolute top-4 left-4 right-4 bg-yellow-600/90 text-white p-4 rounded-lg z-[100] max-w-[90vw] sm:max-w-[600px] mx-auto shadow-lg">
+             <p className="font-semibold text-sm sm:text-base mb-2">⚠️ Codec Compatibility Warning</p>
+             {codecWarning.map((warning, idx) => (
+               <p key={idx} className="text-xs sm:text-sm mb-2 last:mb-0">
+                 {warning.message}
+               </p>
+             ))}
+             {isUnsupportedFormat && (
+               <div className="mt-3 pt-3 border-t border-yellow-500/50">
+                 <p className="text-xs sm:text-sm mb-3">
+                   <strong>Solution:</strong> This format cannot be played in the browser. Use VLC Media Player instead.
+                 </p>
+                 <div className="flex flex-col sm:flex-row gap-2">
+                   <button
+                     onClick={openInVLC}
+                     className="px-4 py-2 bg-[#e50914] text-white rounded hover:bg-[#f40612] active:scale-95 transition-colors text-sm font-semibold flex items-center justify-center gap-2"
+                     title="Open in VLC Media Player"
+                   >
+                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+                     </svg>
+                     Open in VLC
+                   </button>
+                   <button
+                     onClick={copyStreamUrl}
+                     className="px-4 py-2 bg-[#444] text-white rounded hover:bg-[#555] active:scale-95 transition-colors text-sm font-semibold flex items-center justify-center gap-2"
+                     title="Copy stream URL to clipboard"
+                   >
+                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                     </svg>
+                     Copy URL
+                   </button>
+                 </div>
+                 {!isMobileDevice() && (
+                   <p className="text-xs text-yellow-200/80 mt-2">
+                     VLC will download a .m3u playlist file. Open it with VLC to stream the video.
+                   </p>
+                 )}
+               </div>
+             )}
+             {!isUnsupportedFormat && (
+               <p className="text-xs sm:text-sm mt-3 pt-3 border-t border-yellow-500/50">
+                 <strong>Note:</strong> For HEVC/MKV files, consider using a media player that supports these formats (VLC, MPV, or use a server-side transcoding solution).
+               </p>
+             )}
+           </div>
+         )}
+         {error && !isUnsupportedFormat && (
+           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-white bg-black/90 p-4 sm:p-7 rounded-lg z-[100] max-w-[90vw] sm:max-w-[500px] mx-4">
+             <p className="my-2.5 text-sm sm:text-base">{error}</p>
+             <p className="text-xs sm:text-sm text-white/70 mt-3 sm:mt-4">
+               Note: Some formats may not play in all browsers. The browser needs to support the video
+               codec (H.264, VP8, VP9, etc.).
+             </p>
+           </div>
+         )}
       </MediaPlayer>
     </div>
   )
