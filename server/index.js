@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const axios = require('axios');
 const httpService = require('./httpService');
 
 const app = express();
@@ -93,6 +94,114 @@ app.get('/api/fileinfo', async (req, res) => {
   }
 });
 
+// Configure axios defaults
+axios.defaults.timeout = 10000;
+axios.defaults.headers.common['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+
+// Search subtitles using OpenSubtitles API
+app.get('/api/subtitles/search', async (req, res) => {
+  try {
+    const query = req.query.q;
+    const language = req.query.lang || 'en';
+    
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    // Use OpenSubtitles REST API (free, no auth required for search)
+    // Try the legacy REST API endpoint first
+    let searchUrl = `https://rest.opensubtitles.org/search/query-${encodeURIComponent(query)}/sublanguageid-${language}`;
+    
+    console.log(`[API] Searching subtitles: ${query} (${language})`);
+    console.log(`[API] Using URL: ${searchUrl}`);
+    
+    let response;
+    let data;
+    
+    try {
+      response = await axios.get(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      data = response.data;
+    } catch (error) {
+      // If legacy API fails, try alternative format
+      console.log(`[API] Legacy API failed, trying alternative format...`);
+      searchUrl = `https://rest.opensubtitles.org/search/query-${encodeURIComponent(query)}`;
+      try {
+        response = await axios.get(searchUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        });
+        data = response.data;
+      } catch (error2) {
+        console.error(`[API] Both API attempts failed:`, error2.message);
+        throw new Error(`OpenSubtitles API unavailable. Try searching manually on opensubtitles.org or subtitlecat.com`);
+      }
+    }
+    
+    // Handle different response formats
+    let subtitles = [];
+    if (Array.isArray(data)) {
+      subtitles = data;
+    } else if (data && data.data && Array.isArray(data.data)) {
+      subtitles = data.data;
+    } else if (data && data.subtitles && Array.isArray(data.subtitles)) {
+      subtitles = data.subtitles;
+    }
+    
+    // Format the results
+    const formattedSubtitles = subtitles.map(sub => ({
+      id: sub.IDSubtitleFile || sub.id,
+      name: sub.SubFileName || sub.filename || sub.name,
+      language: sub.LanguageName || sub.language || language,
+      downloadUrl: sub.SubDownloadLink || sub.download_url || sub.url,
+      format: sub.SubFormat || sub.format || 'srt',
+      rating: sub.SubRating || sub.rating || '0',
+      downloads: sub.SubDownloadsCnt || sub.downloads || 0
+    })).filter(sub => sub.downloadUrl); // Filter out entries without download URLs
+
+    console.log(`[API] Found ${formattedSubtitles.length} subtitles`);
+    res.json(formattedSubtitles);
+  } catch (error) {
+    console.error('[API] Error searching subtitles:', error);
+    res.status(500).json({ error: error.message || 'Failed to search subtitles' });
+  }
+});
+
+// Download subtitle file (proxy to avoid CORS)
+app.get('/api/subtitles/download', async (req, res) => {
+  try {
+    const url = req.query.url;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'Subtitle URL is required' });
+    }
+
+    console.log(`[API] Downloading subtitle from: ${url}`);
+    
+    // Download subtitle using axios
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      responseType: 'text' // Get as text, not JSON
+    });
+    
+    const subtitleContent = response.data;
+    
+    // Set appropriate content type
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(subtitleContent);
+  } catch (error) {
+    console.error('[API] Error downloading subtitle:', error);
+    res.status(500).json({ error: error.message || 'Failed to download subtitle' });
+  }
+});
+
 // Helper function to determine content type
 function getContentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
@@ -134,9 +243,22 @@ function getContentType(filePath) {
   return contentTypes[ext] || 'application/octet-stream';
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Server accessible at http://0.0.0.0:${PORT}`);
   console.log(`HTTP server URL: ${process.env.HTTP_SERVER_URL || 'http://cdn.dflix.live'}`);
+  
+  // Log network IP addresses for easy access
+  const os = require('os');
+  const networkInterfaces = os.networkInterfaces();
+  console.log('\nAccess from other devices on your network:');
+  Object.keys(networkInterfaces).forEach((iface) => {
+    networkInterfaces[iface].forEach((details) => {
+      if (details.family === 'IPv4' && !details.internal) {
+        console.log(`  http://${details.address}:${PORT}`);
+      }
+    });
+  });
 });
 
 
