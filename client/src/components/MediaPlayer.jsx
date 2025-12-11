@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { MediaPlayer, MediaProvider, CaptionButton } from "@vidstack/react"
+import { MediaPlayer, MediaProvider, CaptionButton, useStore, VolumeSlider, VolumeSliderInstance } from "@vidstack/react"
 import {
   defaultLayoutIcons,
   DefaultVideoLayout,
@@ -103,7 +103,7 @@ const addSubtitleTrack = (mediaElement, subtitleUrl, language = 'en', label = 'S
   mediaElement.appendChild(track)
 }
 
-const MediaPlayerComponent = ({ file }) => {
+const MediaPlayerComponent = ({ file, onEnded, autoplayNext, autostart = false }) => {
   const [isVideo, setIsVideo] = useState(false)
   const [isAudio, setIsAudio] = useState(false)
   const [fileInfo, setFileInfo] = useState(null)
@@ -124,10 +124,10 @@ const MediaPlayerComponent = ({ file }) => {
   const [isUnsupportedFormat, setIsUnsupportedFormat] = useState(false)
   const [mediaDetails, setMediaDetails] = useState(null)
   const [loadingMediaDetails, setLoadingMediaDetails] = useState(false)
-  const [showMediaDetails, setShowMediaDetails] = useState(false)
   const playerRef = useRef(null)
   const subtitleStyleRef = useRef(null)
   const playerContainerRef = useRef(null)
+  const volumeSliderRef = useRef(null)
   const isSettingVolumeRef = useRef(false) // Flag to prevent saving when we programmatically set volume
 
   // Get saved volume from localStorage
@@ -204,6 +204,25 @@ const MediaPlayerComponent = ({ file }) => {
     }, 1000)
     return () => clearTimeout(timer)
   }, [file])
+
+  // Use VolumeSlider state to track volume changes for persistence
+  // Use optional chaining and default to undefined if not available
+  const volumeState = useStore(VolumeSliderInstance, volumeSliderRef)
+  const volumeValue = volumeState?.value
+  
+  // Persist volume changes to localStorage
+  useEffect(() => {
+    // Only process if volumeValue is a valid number
+    if (typeof volumeValue === 'number' && !isNaN(volumeValue) && !isInitializingRef.current && !isSettingVolumeRef.current) {
+      // Convert from 0-100 range to 0-1 range for storage
+      const volume = volumeValue / 100
+      const savedVolume = localStorage.getItem('mediaPlayerVolume')
+      // Don't save if it's 1.0 and we have a different saved value (likely reset to default)
+      if (!(volume === 1.0 && savedVolume !== null && parseFloat(savedVolume) !== 1.0)) {
+        localStorage.setItem('mediaPlayerVolume', volume.toString())
+      }
+    }
+  }, [volumeValue])
 
   // Check browser codec support
   const checkCodecSupport = (fileName) => {
@@ -580,6 +599,18 @@ const MediaPlayerComponent = ({ file }) => {
   }
 
   // Custom CaptionButton component that always shows and allows manual loading
+  // Custom VolumeSlider with ref for state tracking
+  const CustomVolumeSlider = () => {
+    return (
+      <VolumeSlider.Root ref={volumeSliderRef} className="group relative mx-[7.5px] inline-flex h-10 w-full max-w-[80px] cursor-pointer touch-none select-none items-center outline-none aria-hidden:hidden">
+        <VolumeSlider.Track className="relative ring-sky-400 z-0 h-[5px] w-full rounded-sm bg-white/30 group-data-[focus]:ring-[3px]">
+          <VolumeSlider.TrackFill className="bg-indigo-400 absolute h-full w-[var(--slider-fill)] rounded-sm will-change-[width]" />
+        </VolumeSlider.Track>
+        <VolumeSlider.Thumb className="absolute left-[var(--slider-fill)] top-1/2 z-20 h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#cacaca] bg-white opacity-0 ring-white/40 transition-opacity group-data-[active]:opacity-100 group-data-[dragging]:ring-4 will-change-[left]" />
+      </VolumeSlider.Root>
+    )
+  }
+
   const CustomCaptionButton = () => {
     const [hasActiveTrack, setHasActiveTrack] = useState(false)
     
@@ -1147,33 +1178,37 @@ ${streamUrl}
             }
           }
           handleLoadedMetadata()
+          
+          // Autostart: automatically play when metadata is loaded
+          if (autostart) {
+            setTimeout(() => {
+              const player = playerRef.current
+              if (player) {
+                const playerEl = player.el || player
+                const mediaElement = playerEl?.querySelector?.('video') || playerEl?.querySelector?.('audio')
+                if (mediaElement && mediaElement.paused) {
+                  mediaElement.play().catch(err => {
+                    console.log('Autostart play failed (may require user interaction):', err)
+                  })
+                }
+              }
+            }, 300) // Small delay to ensure everything is ready
+          }
+        }}
+        onEnded={() => {
+          // Trigger autoplay when video ends
+          if (onEnded && autoplayNext) {
+            onEnded()
+          }
         }}
       >
         <MediaProvider />
-        <div className="absolute top-0 left-0 right-0 z-10 transition-opacity duration-300 pointer-events-none media-playing:opacity-0 media-paused:opacity-100">
+        <div className="absolute top-0 left-0 right-0 z-10 transition-opacity duration-300 pointer-events-none title-overlay">
           <div className="p-3 sm:p-5 px-4 sm:px-10 bg-gradient-to-b from-black/70 to-transparent">
             <div className="flex justify-between items-center mb-2 sm:mb-2.5 pointer-events-auto relative" style={{ zIndex: 10000 }}>
               <h3 className="m-0 text-base sm:text-lg md:text-xl text-white flex-1 break-words font-medium drop-shadow-lg">
                 {decodeHtmlEntities(file.name)}
               </h3>
-              {mediaDetails && (
-                <button
-                  onClick={() => setShowMediaDetails(true)}
-                  className="ml-3 px-3 py-1.5 bg-[#e50914]/80 hover:bg-[#e50914] text-white rounded text-xs sm:text-sm font-semibold transition-colors flex items-center gap-1.5"
-                  title="View movie/series details"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M12 16v-4M12 8h.01"/>
-                  </svg>
-                  <span className="hidden sm:inline">Details</span>
-                </button>
-              )}
-              {loadingMediaDetails && (
-                <div className="ml-3 px-3 py-1.5 text-white/70 text-xs sm:text-sm">
-                  Loading details...
-                </div>
-              )}
             </div>
             {fileInfo && (
               <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-5 text-xs text-white/70 font-mono items-start sm:items-center pointer-events-auto">
@@ -1201,10 +1236,18 @@ ${streamUrl}
             slots={{
               // Replace with custom caption button that always shows
               captionButton: <CustomCaptionButton />,
+              // Replace with custom volume slider that has ref for state tracking
+              volumeSlider: <CustomVolumeSlider />,
             }}
           />
         ) : !isUnsupportedFormat && isAudio ? (
-          <DefaultVideoLayout icons={defaultLayoutIcons} />
+          <DefaultVideoLayout 
+            icons={defaultLayoutIcons}
+            slots={{
+              // Replace with custom volume slider that has ref for state tracking
+              volumeSlider: <CustomVolumeSlider />,
+            }}
+          />
         ) : null}
          {codecWarning && codecWarning.length > 0 && (
            <div className="absolute top-4 left-4 right-4 bg-yellow-600/90 text-white p-4 rounded-lg z-[100] max-w-[90vw] sm:max-w-[600px] mx-auto shadow-lg">
@@ -1266,177 +1309,6 @@ ${streamUrl}
            </div>
          )}
       </MediaPlayer>
-      {/* Media Details Modal */}
-      {showMediaDetails && mediaDetails && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/80 z-[99998]"
-            onClick={() => setShowMediaDetails(false)}
-          />
-          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#1a1a1a] border border-[#444] rounded-lg shadow-lg w-[95vw] sm:w-[800px] max-w-[95vw] max-h-[90vh] overflow-y-auto z-[99999]">
-            <div className="relative">
-              {/* Backdrop */}
-              {mediaDetails.backdropPath && (
-                <div className="relative h-48 sm:h-64 overflow-hidden rounded-t-lg">
-                  <img
-                    src={mediaDetails.backdropPath}
-                    alt={mediaDetails.title}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/50 to-black/90" />
-                </div>
-              )}
-              
-              {/* Close button */}
-              <button
-                onClick={() => setShowMediaDetails(false)}
-                className="absolute top-4 right-4 w-8 h-8 bg-black/70 hover:bg-black/90 text-white rounded-full flex items-center justify-center transition-colors z-10"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
-
-              <div className="p-4 sm:p-6">
-                {/* Header with poster */}
-                <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-4">
-                  {mediaDetails.posterPath && (
-                    <img
-                      src={mediaDetails.posterPath}
-                      alt={mediaDetails.title}
-                      className="w-32 sm:w-40 h-auto rounded-lg shadow-lg flex-shrink-0 mx-auto sm:mx-0"
-                    />
-                  )}
-                  <div className="flex-1">
-                    <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-2">
-                      {mediaDetails.title}
-                    </h2>
-                    {mediaDetails.originalTitle !== mediaDetails.title && (
-                      <p className="text-sm sm:text-base text-white/70 mb-2">
-                        {mediaDetails.originalTitle}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-white/80 mb-3">
-                      {mediaDetails.releaseDate && (
-                        <span>{new Date(mediaDetails.releaseDate).getFullYear()}</span>
-                      )}
-                      {mediaDetails.runtime && (
-                        <>
-                          <span>•</span>
-                          <span>{Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m</span>
-                        </>
-                      )}
-                      {mediaDetails.mediaType === 'tv' && mediaDetails.numberOfSeasons && (
-                        <>
-                          <span>•</span>
-                          <span>{mediaDetails.numberOfSeasons} Season{mediaDetails.numberOfSeasons !== 1 ? 's' : ''}</span>
-                        </>
-                      )}
-                      {mediaDetails.rating > 0 && (
-                        <>
-                          <span>•</span>
-                          <span className="flex items-center gap-1">
-                            <span>⭐</span>
-                            <span className="font-semibold">{mediaDetails.rating.toFixed(1)}</span>
-                            {mediaDetails.voteCount > 0 && (
-                              <span className="text-white/60">({mediaDetails.voteCount.toLocaleString()})</span>
-                            )}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    {mediaDetails.genres && mediaDetails.genres.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {mediaDetails.genres.map((genre, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2 py-1 bg-[#e50914]/20 text-[#e50914] rounded text-xs sm:text-sm border border-[#e50914]/30"
-                          >
-                            {genre}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Overview */}
-                {mediaDetails.overview && (
-                  <div className="mb-4">
-                    <h3 className="text-lg font-semibold text-white mb-2">Overview</h3>
-                    <p className="text-sm sm:text-base text-white/80 leading-relaxed">
-                      {mediaDetails.overview}
-                    </p>
-                  </div>
-                )}
-
-                {/* Additional Info */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                  {mediaDetails.status && (
-                    <div>
-                      <span className="text-xs sm:text-sm text-white/60">Status: </span>
-                      <span className="text-xs sm:text-sm text-white/80">{mediaDetails.status}</span>
-                    </div>
-                  )}
-                  {mediaDetails.mediaType === 'tv' && mediaDetails.numberOfEpisodes && (
-                    <div>
-                      <span className="text-xs sm:text-sm text-white/60">Episodes: </span>
-                      <span className="text-xs sm:text-sm text-white/80">{mediaDetails.numberOfEpisodes}</span>
-                    </div>
-                  )}
-                  {mediaDetails.tagline && (
-                    <div className="sm:col-span-2">
-                      <p className="text-sm italic text-white/70">"{mediaDetails.tagline}"</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Cast */}
-                {mediaDetails.cast && mediaDetails.cast.length > 0 && (
-                  <div className="mb-4">
-                    <h3 className="text-lg font-semibold text-white mb-3">Cast</h3>
-                    <div className="flex gap-3 overflow-x-auto pb-2">
-                      {mediaDetails.cast.map((actor, idx) => (
-                        <div key={idx} className="flex-shrink-0 text-center w-24 sm:w-28">
-                          {actor.profilePath ? (
-                            <img
-                              src={actor.profilePath}
-                              alt={actor.name}
-                              className="w-20 sm:w-24 h-20 sm:h-24 rounded-full object-cover mb-2 mx-auto"
-                            />
-                          ) : (
-                            <div className="w-20 sm:w-24 h-20 sm:h-24 rounded-full bg-[#333] mb-2 mx-auto flex items-center justify-center">
-                              <span className="text-white/50 text-xs">No Image</span>
-                            </div>
-                          )}
-                          <p className="text-xs sm:text-sm text-white font-medium truncate">{actor.name}</p>
-                          <p className="text-xs text-white/60 truncate">{actor.character}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Crew */}
-                {mediaDetails.crew && mediaDetails.crew.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-white mb-3">Crew</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {mediaDetails.crew.map((member, idx) => (
-                        <div key={idx} className="text-sm text-white/80">
-                          <span className="font-medium">{member.name}</span>
-                          <span className="text-white/60"> - {member.job}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   )
 }

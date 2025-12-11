@@ -50,6 +50,31 @@
   transform: scale(0.95);
 }
 
+/* Title overlay - hide when controls are hidden */
+.netflix-player .title-overlay {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* Show title when paused */
+.netflix-player [data-media-player][data-paused] ~ .title-overlay,
+.netflix-player [data-media-player][data-paused] + .title-overlay {
+  opacity: 1;
+}
+
+/* Show title when hovering over player */
+.netflix-player [data-media-player]:hover ~ .title-overlay,
+.netflix-player [data-media-player]:hover + .title-overlay,
+.netflix-player:hover .title-overlay {
+  opacity: 1;
+}
+
+/* Show title when controls are visible (user interaction) */
+.netflix-player [data-media-player][data-controls] ~ .title-overlay,
+.netflix-player [data-media-player][data-controls] + .title-overlay {
+  opacity: 1;
+}
+
 /* Play Button - Large and prominent */
 .netflix-player [data-media-player] [data-media-play-button] {
   width: 50px;

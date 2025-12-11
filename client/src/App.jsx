@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import FileBrowser from './components/FileBrowser.jsx';
 import MediaPlayer from './components/MediaPlayer.jsx';
 import { api } from './services/api';
@@ -11,6 +11,32 @@ const isFilePath = (path) => {
   // Check if it has a file extension (contains a dot in the last segment)
   const lastSegment = cleanPath.split('/').pop();
   return lastSegment.includes('.') && lastSegment.split('.').length > 1;
+};
+
+// Extract full filename from path (handles truncated names)
+const getFullFileName = (file) => {
+  // If name looks truncated (ends with .. or &gt;), extract from path
+  if (file.name && (file.name.endsWith('..') || file.name.endsWith('&gt;') || file.name.includes('..&gt;'))) {
+    if (file.path) {
+      const pathParts = file.path.split('/');
+      const fullName = pathParts[pathParts.length - 1];
+      // Decode HTML entities
+      const textarea = document.createElement("textarea");
+      textarea.innerHTML = fullName;
+      return textarea.value;
+    }
+  }
+  // Decode HTML entities
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = file.name || '';
+  return textarea.value;
+};
+
+// Extract file extension from path
+const getFileExtension = (file) => {
+  const fileName = file.path ? file.path.split('/').pop() : file.name;
+  const ext = fileName.toLowerCase().split('.').pop();
+  return ext;
 };
 
 // Helper to get parent directory from a path
@@ -36,7 +62,27 @@ function App() {
     return isFilePath(initialPath) ? getParentPath(initialPath) : initialPath;
   });
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [relatedFiles, setRelatedFiles] = useState([]);
+  
+  // Autoplay and autostart settings (persisted in localStorage)
+  const [autoplay, setAutoplay] = useState(() => {
+    const saved = localStorage.getItem('autoplay');
+    return saved !== null ? saved === 'true' : true; // Default to true
+  });
+  const [autostart, setAutostart] = useState(() => {
+    const saved = localStorage.getItem('autostart');
+    return saved !== null ? saved === 'true' : false; // Default to false
+  });
+  
+  // Save autoplay/autostart to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem('autoplay', autoplay.toString());
+  }, [autoplay]);
+  
+  useEffect(() => {
+    localStorage.setItem('autostart', autostart.toString());
+  }, [autostart]);
 
   // Update URL when path changes (but not during initial file load)
   useEffect(() => {
@@ -116,12 +162,48 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Load related files when a file is selected (for autoplay)
+  useEffect(() => {
+    if (!selectedFile) {
+      setRelatedFiles([]);
+      return;
+    }
+
+    const loadRelatedFiles = async () => {
+      try {
+        // Load related files from the same directory
+        const parentPath = getParentPath(selectedFile.path);
+        const fileList = await api.listFiles(parentPath);
+        const mediaFiles = fileList.filter(f => {
+          if (f.type !== 'file') return false;
+          const ext = getFileExtension(f);
+          const videoExts = ['mp4', 'webm', 'ogg', 'ogv', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'm4v', '3gp', 'ts', 'mts', 'mpg', 'mpeg'];
+          const audioExts = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'oga', 'opus', 'wma'];
+          return videoExts.includes(ext) || audioExts.includes(ext);
+        });
+
+        // Sort files naturally (for series episodes) - use full filename from path
+        mediaFiles.sort((a, b) => {
+          const nameA = getFullFileName(a);
+          const nameB = getFullFileName(b);
+          return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+        setRelatedFiles(mediaFiles);
+      } catch (err) {
+        console.error('Error loading related files:', err);
+      }
+    };
+
+    loadRelatedFiles();
+  }, [selectedFile]);
+
   const handleFileSelect = (file) => {
     setSelectedFile(file);
     // Update URL with file path
     const params = new URLSearchParams(window.location.search);
     params.set('path', file.path);
-    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    window.history.pushState({}, '', `${window.location.pathname}?${params.toString()}`);
   };
 
   const handlePathChange = (path) => {
@@ -140,58 +222,229 @@ function App() {
     window.history.replaceState({}, '', newUrl);
   };
 
-  return (
-    <div className="w-screen h-screen flex flex-col bg-[#121212]">
-      <header className="bg-[#1a1a1a] px-4 sm:px-6 md:px-8 py-3 sm:py-4 border-b-2 border-[#007acc] shadow-lg">
-        <div className="flex items-center gap-3 sm:gap-4">
+  const handleBackToBrowser = () => {
+    setSelectedFile(null);
+    // Update URL to current directory
+    const params = new URLSearchParams(window.location.search);
+    if (currentPath === '/') {
+      params.delete('path');
+    } else {
+      params.set('path', currentPath);
+    }
+    const newUrl = params.toString() 
+      ? `${window.location.pathname}?${params.toString()}`
+      : window.location.pathname;
+    window.history.pushState({}, '', newUrl);
+  };
+
+  const handleGoHome = () => {
+    setSelectedFile(null);
+    setCurrentPath('/');
+    const params = new URLSearchParams(window.location.search);
+    params.delete('path');
+    window.history.pushState({}, '', window.location.pathname);
+  };
+
+  // Handle autoplay - when current file ends, play next related file (only if autoplay is enabled)
+  const handleMediaEnded = () => {
+    if (autoplay && relatedFiles.length > 0) {
+      const currentIndex = relatedFiles.findIndex(f => f.path === selectedFile.path);
+      if (currentIndex >= 0 && currentIndex < relatedFiles.length - 1) {
+        const nextFile = relatedFiles[currentIndex + 1];
+        setSelectedFile(nextFile);
+      }
+    }
+  };
+
+  // If file is selected, show full-screen player
+  if (selectedFile) {
+    const currentIndex = relatedFiles.findIndex(f => f.path === selectedFile.path);
+
+    return (
+      <div className="w-screen h-screen bg-black relative overflow-hidden">
+        {/* Controls overlay */}
+        <div className="absolute top-4 left-4 right-4 z-50 flex items-center justify-between gap-4">
+          {/* Logo/Home button */}
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden px-3 py-2 bg-[#007acc] text-white rounded text-sm hover:bg-[#005a9e] transition-colors"
-            aria-label="Toggle sidebar"
+            onClick={handleGoHome}
+            className="px-4 py-2 bg-black/70 hover:bg-black/90 text-white rounded-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95 backdrop-blur-sm font-semibold text-lg"
+            aria-label="Go to home"
           >
-            {sidebarOpen ? '✕' : '☰'}
+            PirateFlix
           </button>
-          <div className="flex-1 min-w-0">
-            <h1 className="m-0 text-lg sm:text-xl md:text-2xl text-[#e0e0e0] font-semibold truncate">HTTP Streaming Service</h1>
-            <p className="mt-1 text-xs sm:text-sm text-[#888] hidden sm:block">Stream media files from your HTTP server</p>
+          
+          {/* Back button */}
+          <button
+            onClick={handleBackToBrowser}
+            className="px-4 py-2 bg-black/70 hover:bg-black/90 text-white rounded-lg flex items-center gap-2 transition-all hover:scale-105 active:scale-95 backdrop-blur-sm"
+            aria-label="Back to library"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            <span className="hidden sm:inline font-medium">Back to Library</span>
+          </button>
+          
+          {/* Settings Toggles */}
+          <div className="flex items-center gap-3">
+            {/* Autoplay Toggle */}
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={autoplay}
+                onChange={(e) => setAutoplay(e.target.checked)}
+                className="sr-only"
+              />
+              <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                autoplay ? 'bg-[#00A8E1]' : 'bg-white/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ${
+                  autoplay ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </div>
+              <span className="text-white/70 text-xs font-medium hidden sm:inline group-hover:text-white transition-colors">
+                Autoplay
+              </span>
+            </label>
+            
+            {/* Autostart Toggle */}
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={autostart}
+                onChange={(e) => setAutostart(e.target.checked)}
+                className="sr-only"
+              />
+              <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                autostart ? 'bg-[#00A8E1]' : 'bg-white/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ${
+                  autostart ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </div>
+              <span className="text-white/70 text-xs font-medium hidden sm:inline group-hover:text-white transition-colors">
+                Autostart
+              </span>
+            </label>
+          </div>
+        </div>
+        <MediaPlayer 
+          file={selectedFile} 
+          onEnded={handleMediaEnded}
+          autoplayNext={currentIndex >= 0 && currentIndex < relatedFiles.length - 1}
+          autostart={autostart}
+        />
+      </div>
+    );
+  }
+
+  // Otherwise, show full-screen browser
+  return (
+    <div className="w-screen h-screen flex flex-col bg-[#0f1419] overflow-hidden">
+      <header className="bg-[#1a2332] border-b border-white/5 px-4 sm:px-6 md:px-8 py-3 sm:py-4 flex-shrink-0 z-30">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <button
+              onClick={handleGoHome}
+              className="m-0 text-lg sm:text-xl md:text-2xl text-white font-semibold truncate hover:text-[#00A8E1] transition-colors cursor-pointer"
+            >
+              PirateFlix
+            </button>
+          </div>
+          {/* Settings Toggles */}
+          <div className="flex items-center gap-3 mr-2">
+            {/* Autoplay Toggle */}
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={autoplay}
+                onChange={(e) => setAutoplay(e.target.checked)}
+                className="sr-only"
+              />
+              <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                autoplay ? 'bg-[#00A8E1]' : 'bg-white/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ${
+                  autoplay ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </div>
+              <span className="text-white/70 text-xs font-medium hidden sm:inline group-hover:text-white transition-colors">
+                Autoplay
+              </span>
+            </label>
+            
+            {/* Autostart Toggle */}
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={autostart}
+                onChange={(e) => setAutostart(e.target.checked)}
+                className="sr-only"
+              />
+              <div className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+                autostart ? 'bg-[#00A8E1]' : 'bg-white/20'
+              }`}>
+                <div className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ${
+                  autostart ? 'translate-x-5' : 'translate-x-0'
+                }`} />
+              </div>
+              <span className="text-white/70 text-xs font-medium hidden sm:inline group-hover:text-white transition-colors">
+                Autostart
+              </span>
+            </label>
+          </div>
+          
+          {/* Search Bar - Amazon Prime style */}
+          <div className="flex items-center gap-3">
+            <div className="relative hidden sm:block">
+              <div className="relative">
+                <svg 
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-64 pl-10 pr-10 py-2 bg-white/10 border border-white/20 rounded text-white placeholder-white/40 focus:outline-none focus:border-[#00A8E1] focus:bg-white/15 transition-all text-sm"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+            <button
+              className="sm:hidden p-2 text-white/70 hover:text-white transition-colors"
+              aria-label="Search"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </button>
           </div>
         </div>
       </header>
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 relative">
-        {/* Mobile sidebar overlay */}
-        {sidebarOpen && (
-          <div
-            className="lg:hidden fixed inset-0 bg-black/50 z-40"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-        {/* Sidebar */}
-        <div
-          className={`
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-            fixed lg:static
-            top-0 left-0 h-full lg:h-auto
-            w-[85vw] sm:w-[400px] max-w-[500px]
-            bg-[#1e1e1e] border-r border-[#333]
-            flex flex-col overflow-hidden
-            z-50 lg:z-auto
-            transition-transform duration-300 ease-in-out
-            lg:transition-none
-          `}
-        >
-          <FileBrowser
-            onFileSelect={(file) => {
-              handleFileSelect(file);
-              setSidebarOpen(false); // Close sidebar on mobile when file is selected
-            }}
-            currentPath={currentPath}
-            onPathChange={handlePathChange}
-          />
-        </div>
-        {/* Main content */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0 w-full">
-          <MediaPlayer file={selectedFile} />
-        </div>
+      <div className="flex-1 overflow-hidden">
+        <FileBrowser
+          onFileSelect={handleFileSelect}
+          currentPath={currentPath}
+          onPathChange={handlePathChange}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
       </div>
     </div>
   );
