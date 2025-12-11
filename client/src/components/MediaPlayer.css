@@ -1,0 +1,281 @@
+/* Netflix-style Vidstack Player Customizations */
+
+/* Player Container */
+.netflix-player {
+  background: #000;
+  position: relative;
+}
+
+/* Netflix Red Brand Color */
+.netflix-player [data-media-player] {
+  --media-brand: #e50914;
+  --media-controls-color: #fff;
+}
+
+/* Progress Bar - Netflix Red */
+.netflix-player [data-media-player] [data-media-slider] {
+  --media-slider-track-bg: rgba(255, 255, 255, 0.3);
+  --media-slider-track-fill-bg: #e50914;
+  --media-slider-thumb-bg: #e50914;
+  --media-slider-thumb-border: 2px solid #fff;
+  --media-slider-track-height: 4px;
+}
+
+.netflix-player [data-media-player] [data-media-slider]:hover {
+  --media-slider-track-fill-bg: #f40612;
+  --media-slider-thumb-bg: #f40612;
+  --media-slider-track-height: 6px;
+}
+
+/* Control Bar - Dark gradient overlay (Netflix style) */
+.netflix-player [data-media-player] [data-media-controls] {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.7) 60%, transparent 100%);
+  padding: 20px 30px;
+}
+
+/* Buttons - Clean white with hover effects */
+.netflix-player [data-media-player] button {
+  color: #fff;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+}
+
+.netflix-player [data-media-player] button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+.netflix-player [data-media-player] button:active {
+  transform: scale(0.95);
+}
+
+/* Play Button - Large and prominent */
+.netflix-player [data-media-player] [data-media-play-button] {
+  width: 50px;
+  height: 50px;
+}
+
+/* Volume Control - Netflix Red */
+.netflix-player [data-media-player] [data-media-volume-slider] {
+  --media-slider-track-bg: rgba(255, 255, 255, 0.3);
+  --media-slider-track-fill-bg: #e50914;
+  --media-slider-thumb-bg: #e50914;
+}
+
+/* Time Display */
+.netflix-player [data-media-player] [data-media-time] {
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+/* Fullscreen Button */
+.netflix-player [data-media-player] [data-media-fullscreen-button] {
+  color: #fff;
+}
+
+/* Google Cast and AirPlay buttons - Netflix style */
+.netflix-player [data-media-player] [data-media-google-cast-button],
+.netflix-player [data-media-player] [data-media-airplay-button] {
+  color: #fff;
+  opacity: 0.9;
+  transition: all 0.2s ease;
+  width: 40px;
+  height: 40px;
+}
+
+.netflix-player [data-media-player] [data-media-google-cast-button]:hover,
+.netflix-player [data-media-player] [data-media-airplay-button]:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+.netflix-player [data-media-player] [data-media-google-cast-button][data-active],
+.netflix-player [data-media-player] [data-media-airplay-button][data-active] {
+  color: #e50914;
+  opacity: 1;
+}
+
+/* Hide controls when playing and user inactive */
+.netflix-player [data-media-player][data-playing][data-user-idle] [data-media-controls] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.netflix-player [data-media-player][data-paused] [data-media-controls],
+.netflix-player [data-media-player][data-user-active] [data-media-controls] {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.3s ease;
+}
+
+/* Big Play Button - Netflix style */
+.netflix-player [data-media-player] [data-media-big-play-button] {
+  background: rgba(255, 255, 255, 0.95);
+  border: none;
+  border-radius: 50%;
+  width: 100px;
+  height: 100px;
+  color: #000;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.netflix-player [data-media-player] [data-media-big-play-button]:hover {
+  background: rgba(255, 255, 255, 1);
+  transform: scale(1.1);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8);
+}
+
+.netflix-player [data-media-player][data-playing] [data-media-big-play-button],
+.netflix-player [data-media-player][data-user-active] [data-media-big-play-button] {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.8);
+}
+
+/* Loading Spinner - Netflix Red */
+.netflix-player [data-media-player] [data-media-loading-indicator] {
+  border-color: #e50914;
+}
+
+/* Menu styling - Netflix dark theme */
+.netflix-player [data-media-player] [data-media-menu] {
+  background: rgba(0, 0, 0, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.netflix-player [data-media-player] [data-media-menu-item]:hover {
+  background: rgba(229, 9, 20, 0.3);
+  color: #fff;
+}
+
+/* Subtitle/Caption styling - Netflix style (default, will be overridden by dynamic styles) */
+.netflix-player [data-media-player] [data-media-captions] {
+  font-size: 20px;
+  color: #fff;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.95);
+  background: transparent;
+  padding: 10px 16px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  max-width: 85%;
+  margin: 0 auto;
+}
+
+/* Video cue styling */
+.netflix-player video::cue,
+.netflix-player [data-media-player] video::cue {
+  font-size: 20px;
+  color: #fff;
+  background-color: rgba(0, 0, 0, 0.7);
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.95);
+  padding: 10px 16px;
+  border-radius: 4px;
+  line-height: 1.5;
+  text-align: center;
+  max-width: 85%;
+  margin: 0 auto;
+}
+
+/* Video Layout CSS Variables - Netflix Theme */
+.netflix-player [data-media-player] .vds-video-layout {
+  --video-brand: #e50914;
+  --video-controls-color: #fff;
+  --video-bg: #000;
+}
+
+/* Audio Layout CSS Variables - Netflix Theme */
+.netflix-player [data-media-player] .vds-audio-layout {
+  --audio-brand: #e50914;
+  --audio-controls-color: #fff;
+  --audio-bg: #000;
+}
+
+/* Smooth transitions */
+.netflix-player [data-media-player] * {
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Caption Button - Always show - multiple selectors to ensure visibility */
+.netflix-player [data-media-player] [data-media-caption-button],
+.netflix-player [data-media-player] button[data-media-caption-button],
+.netflix-player [data-media-player] .media-caption-button,
+.netflix-player [data-media-player] .media-caption-button button,
+.netflix-player [data-media-player] [data-media-controls] [data-media-caption-button],
+.netflix-player [data-media-player] [data-media-controls] button[data-media-caption-button] {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  opacity: 0.9 !important;
+  transition: all 0.2s ease;
+  width: 40px;
+  height: 40px;
+  visibility: visible !important;
+}
+
+/* Force show even when data-supported is false or missing */
+.netflix-player [data-media-player] [data-media-caption-button]:not([data-supported]),
+.netflix-player [data-media-player] [data-media-caption-button][data-supported="false"] {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 0.9 !important;
+}
+
+.netflix-player [data-media-player] [data-media-caption-button]:hover,
+.netflix-player [data-media-player] button[data-media-caption-button]:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+.netflix-player [data-media-player] [data-media-caption-button][data-active],
+.netflix-player [data-media-player] button[data-media-caption-button][data-active] {
+  color: #e50914;
+  opacity: 1;
+}
+
+/* Ensure Google Cast and AirPlay buttons are visible - multiple selectors */
+.netflix-player [data-media-player] [data-media-google-cast-button],
+.netflix-player [data-media-player] [data-media-airplay-button],
+.netflix-player [data-media-player] button[data-media-google-cast-button],
+.netflix-player [data-media-player] button[data-media-airplay-button],
+.netflix-player [data-media-player] [data-media-controls] [data-media-google-cast-button],
+.netflix-player [data-media-player] [data-media-controls] [data-media-airplay-button],
+.netflix-player button[aria-label*="Cast"],
+.netflix-player button[aria-label*="AirPlay"] {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  visibility: visible !important;
+  opacity: 0.9 !important;
+  width: 40px;
+  height: 40px;
+}
+
+.netflix-player [data-media-player] [data-media-google-cast-button]:hover,
+.netflix-player [data-media-player] [data-media-airplay-button]:hover,
+.netflix-player [data-media-player] button[data-media-google-cast-button]:hover,
+.netflix-player [data-media-player] button[data-media-airplay-button]:hover {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+/* Force show buttons even when hidden by default or not supported */
+.netflix-player [data-media-player] [data-media-google-cast-button][data-hidden],
+.netflix-player [data-media-player] [data-media-airplay-button][data-hidden],
+.netflix-player [data-media-player] [data-media-caption-button][data-hidden],
+.netflix-player [data-media-player] [data-media-google-cast-button]:not([data-can-google-cast]),
+.netflix-player [data-media-player] [data-media-airplay-button]:not([data-can-airplay]) {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 0.9 !important;
+}
