@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/api';
+import { favoritesService, watchLaterService } from '../services/storage';
 
 // Helper function to decode HTML entities
 const decodeHtmlEntities = (str) => {
@@ -91,13 +92,15 @@ const extractMediaName = (file) => {
   return words.slice(0, 5).join(' ');
 };
 
-const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = '', onSearchChange }) => {
+const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = '', onSearchChange, isHomepage = false, onFavoritesChange, onWatchLaterChange }) => {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [mediaMetadata, setMediaMetadata] = useState({}); // Store metadata by file path
   const [loadingMetadata, setLoadingMetadata] = useState(new Set());
   const [mediaDetails, setMediaDetails] = useState(null); // Full media details for the directory
+  const [favorites, setFavorites] = useState(new Set());
+  const [watchLater, setWatchLater] = useState(new Set());
 
   useEffect(() => {
     loadFiles(currentPath);
@@ -105,6 +108,11 @@ const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = ''
     if (onSearchChange) {
       onSearchChange('');
     }
+    // Load favorites and watch later status
+    const favs = favoritesService.getAll();
+    const wl = watchLaterService.getAll();
+    setFavorites(new Set(favs.map(f => f.path)));
+    setWatchLater(new Set(wl.map(f => f.path)));
   }, [currentPath]);
 
   const loadFiles = async (path) => {
@@ -302,23 +310,25 @@ const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = ''
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#0f1419] text-white overflow-hidden">
+    <div className={`w-full ${isHomepage ? 'flex-auto' : 'h-full'} flex flex-col bg-[#0f1419] text-white ${isHomepage ? '' : 'overflow-hidden'}`}>
         {/* Header */}
         <div className="p-4 sm:p-6 border-b border-white/5 bg-[#1a2332]/50 flex-shrink-0">
           <div className="flex items-center gap-3 mb-2 flex-wrap">
-            <button 
-              onClick={handleBack} 
-              disabled={currentPath === '/'}
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50 text-white rounded transition-all active:scale-95 flex items-center gap-2 font-medium"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 12H5M12 19l-7-7 7-7"/>
-              </svg>
-              Back
-            </button>
+            {currentPath !== '/' && (
+              <button 
+                onClick={handleBack} 
+                className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded transition-all active:scale-95 flex items-center gap-2 font-medium"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                Back
+              </button>
+            )}
             
             {/* Breadcrumb Navigation */}
-            <div className="flex items-center gap-2 text-sm text-white/70 flex-wrap">
+            {currentPath !== '/' && (
+            <div className="flex items-center gap-2 text-sm text-white/70 flex-wrap flex-1">
               {getBreadcrumbs().map((crumb, index, array) => (
                 <React.Fragment key={crumb.path}>
                   {index > 0 && (
@@ -327,7 +337,65 @@ const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = ''
                     </svg>
                   )}
                   {index === array.length - 1 ? (
-                    <span className="text-white font-medium">{crumb.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-medium">{crumb.name}</span>
+                      {/* Favorite and Watch Later Buttons for current directory */}
+                      {currentPath !== '/' && (
+                        <div className="flex items-center gap-2 ml-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const breadcrumbs = getBreadcrumbs();
+                              const currentDir = {
+                                type: 'directory',
+                                path: currentPath,
+                                name: breadcrumbs[breadcrumbs.length - 1].name
+                              };
+                              favoritesService.toggle(currentDir);
+                              setFavorites(new Set(favoritesService.getAll().map(f => f.path)));
+                              if (onFavoritesChange) onFavoritesChange();
+                            }}
+                            className={`p-1.5 rounded-full transition-colors ${
+                              favorites.has(currentPath)
+                                ? 'bg-[#00A8E1] text-white'
+                                : 'bg-white/10 hover:bg-white/20 text-white/70 hover:text-white'
+                            }`}
+                            aria-label={favorites.has(currentPath) ? 'Remove from favorites' : 'Add to favorites'}
+                            title={favorites.has(currentPath) ? 'Remove from favorites' : 'Add to favorites'}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill={favorites.has(currentPath) ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const breadcrumbs = getBreadcrumbs();
+                              const currentDir = {
+                                type: 'directory',
+                                path: currentPath,
+                                name: breadcrumbs[breadcrumbs.length - 1].name
+                              };
+                              watchLaterService.toggle(currentDir);
+                              setWatchLater(new Set(watchLaterService.getAll().map(f => f.path)));
+                              if (onWatchLaterChange) onWatchLaterChange();
+                            }}
+                            className={`p-1.5 rounded-full transition-colors ${
+                              watchLater.has(currentPath)
+                                ? 'bg-[#00A8E1] text-white'
+                                : 'bg-white/10 hover:bg-white/20 text-white/70 hover:text-white'
+                            }`}
+                            aria-label={watchLater.has(currentPath) ? 'Remove from watch later' : 'Add to watch later'}
+                            title={watchLater.has(currentPath) ? 'Remove from watch later' : 'Add to watch later'}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="10"/>
+                              <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <button
                       onClick={() => onPathChange(crumb.path)}
@@ -340,6 +408,7 @@ const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = ''
                 </React.Fragment>
               ))}
             </div>
+            )}
           </div>
           {searchQuery && (
             <div className="text-white/60 text-xs sm:text-sm">
@@ -349,7 +418,7 @@ const FileBrowser = ({ onFileSelect, currentPath, onPathChange, searchQuery = ''
         </div>
         
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className={isHomepage ? 'flex-auto' : 'flex-1 overflow-y-auto'}>
           {/* Media Details Section - Show when all files belong to same media */}
           {mediaDetails && mediaFiles.length > 0 && (
             <div className="relative">

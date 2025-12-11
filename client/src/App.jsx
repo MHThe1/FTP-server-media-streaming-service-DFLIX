@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import FileBrowser from './components/FileBrowser.jsx';
 import MediaPlayer from './components/MediaPlayer.jsx';
+import FavoritesSection from './components/FavoritesSection.jsx';
+import WatchLaterSection from './components/WatchLaterSection.jsx';
 import { api } from './services/api';
 
 // Helper to check if a path is likely a file (has extension)
@@ -64,6 +66,7 @@ function App() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [relatedFiles, setRelatedFiles] = useState([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Autoplay and autostart settings (persisted in localStorage)
   const [autoplay, setAutoplay] = useState(() => {
@@ -437,15 +440,45 @@ function App() {
           </div>
         </div>
       </header>
-      <div className="flex-1 overflow-hidden">
-        <FileBrowser
-          onFileSelect={handleFileSelect}
-          currentPath={currentPath}
-          onPathChange={handlePathChange}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-        />
-      </div>
+      {currentPath === '/' ? (
+        <div className="flex-1 overflow-y-auto">
+          {/* Favorites Section */}
+          <FavoritesSection
+            onFileSelect={handleFileSelect}
+            onPathChange={handlePathChange}
+            refreshTrigger={refreshTrigger}
+          />
+          
+          {/* File Browser */}
+          <FileBrowser
+            onFileSelect={handleFileSelect}
+            currentPath={currentPath}
+            onPathChange={handlePathChange}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            isHomepage={true}
+            onFavoritesChange={() => setRefreshTrigger(prev => prev + 1)}
+            onWatchLaterChange={() => setRefreshTrigger(prev => prev + 1)}
+          />
+          
+          {/* Watch Later Section */}
+          <WatchLaterSection
+            onFileSelect={handleFileSelect}
+            onPathChange={handlePathChange}
+            refreshTrigger={refreshTrigger}
+          />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-hidden">
+          <FileBrowser
+            onFileSelect={handleFileSelect}
+            currentPath={currentPath}
+            onPathChange={handlePathChange}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+          />
+        </div>
+      )}
     </div>
   );
 }
