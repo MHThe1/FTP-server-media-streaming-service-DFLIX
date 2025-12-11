@@ -63,6 +63,38 @@ export const api = {
       console.error('API Error:', error);
       throw error;
     }
+  },
+
+  async searchMedia(query, type = 'multi') {
+    try {
+      // Clean query - remove trailing dashes and extra spaces
+      const cleanQuery = query.trim().replace(/\s*-\s*$/, '').trim();
+      // Add cache-busting parameter
+      const timestamp = Date.now();
+      const response = await fetch(`${API_BASE_URL}/media/search?q=${encodeURIComponent(cleanQuery)}&type=${type}&_t=${timestamp}`);
+      if (!response.ok) {
+        throw new Error(`Failed to search media: ${response.statusText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  },
+
+  async getMediaDetails(id, type = 'movie') {
+    try {
+      // Add cache-busting parameter
+      const timestamp = Date.now();
+      const response = await fetch(`${API_BASE_URL}/media/details?id=${id}&type=${type}&_t=${timestamp}`);
+      if (!response.ok) {
+        throw new Error(`Failed to get media details: ${response.statusText}`);
+      }
+      return response.json();
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
   }
 };
 

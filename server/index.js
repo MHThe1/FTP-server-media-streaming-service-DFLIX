@@ -218,6 +218,168 @@ app.get('/api/subtitles/download', async (req, res) => {
   }
 });
 
+// Search for movie/series metadata using TMDB API
+app.get('/api/media/search', async (req, res) => {
+  try {
+    const query = req.query.q;
+    const type = req.query.type || 'multi'; // 'movie', 'tv', or 'multi'
+    
+    if (!query) {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    // Prevent caching
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const TMDB_API_KEY = process.env.TMDB_API_KEY || '8c4e4c4e4c4e4c4e4c4e4c4e4c4e4c4e'; // Default demo key (replace with your own)
+    const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+    
+    console.log(`[API] Searching media: ${query} (type: ${type})`);
+    
+    let searchUrl;
+    if (type === 'multi') {
+      searchUrl = `${TMDB_BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US`;
+    } else if (type === 'movie') {
+      searchUrl = `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US`;
+    } else if (type === 'tv') {
+      searchUrl = `${TMDB_BASE_URL}/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US`;
+    } else {
+      return res.status(400).json({ error: 'Invalid type. Use "movie", "tv", or "multi"' });
+    }
+    
+    let response;
+    try {
+      response = await axios.get(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 10000
+      });
+    } catch (error) {
+      console.error(`[API] TMDB API error:`, error.message);
+      // Return empty results instead of error if API fails
+      return res.json({ results: [], total_results: 0 });
+    }
+    
+    const data = response.data;
+    const results = (data.results || []).slice(0, 5).map(item => {
+      const isMovie = item.media_type === 'movie' || type === 'movie';
+      const isTV = item.media_type === 'tv' || type === 'tv';
+      
+      return {
+        id: item.id,
+        title: item.title || item.name,
+        originalTitle: item.original_title || item.original_name,
+        overview: item.overview || '',
+        releaseDate: item.release_date || item.first_air_date,
+        rating: item.vote_average || 0,
+        voteCount: item.vote_count || 0,
+        posterPath: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+        backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : null,
+        mediaType: item.media_type || (isMovie ? 'movie' : 'tv'),
+        genreIds: item.genre_ids || []
+      };
+    });
+    
+    console.log(`[API] Found ${results.length} media results`);
+    res.json({ results, total_results: data.total_results || 0 });
+  } catch (error) {
+    console.error('[API] Error searching media:', error);
+    // Return empty results instead of error
+    res.json({ results: [], total_results: 0 });
+  }
+});
+
+// Get detailed movie/series information
+app.get('/api/media/details', async (req, res) => {
+  try {
+    const id = req.query.id;
+    const type = req.query.type || 'movie'; // 'movie' or 'tv'
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Media ID is required' });
+    }
+
+    // Prevent caching
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    const TMDB_API_KEY = process.env.TMDB_API_KEY || '8c4e4c4e4c4e4c4e4c4e4c4e4c4e4c4e'; // Default demo key (replace with your own)
+    const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+    
+    const endpoint = type === 'tv' ? 'tv' : 'movie';
+    const detailsUrl = `${TMDB_BASE_URL}/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=en-US&append_to_response=credits,videos`;
+    
+    console.log(`[API] Fetching media details: ${id} (type: ${type})`);
+    
+    let response;
+    try {
+      response = await axios.get(detailsUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        timeout: 10000
+      });
+    } catch (error) {
+      console.error(`[API] TMDB API error:`, error.message);
+      return res.status(500).json({ error: 'Failed to fetch media details' });
+    }
+    
+    const data = response.data;
+    const details = {
+      id: data.id,
+      title: data.title || data.name,
+      originalTitle: data.original_title || data.original_name,
+      overview: data.overview || '',
+      releaseDate: data.release_date || data.first_air_date,
+      rating: data.vote_average || 0,
+      voteCount: data.vote_count || 0,
+      popularity: data.popularity || 0,
+      posterPath: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+      backdropPath: data.backdrop_path ? `https://image.tmdb.org/t/p/w1280${data.backdrop_path}` : null,
+      genres: (data.genres || []).map(g => g.name),
+      runtime: data.runtime || data.episode_run_time?.[0] || null,
+      tagline: data.tagline || '',
+      status: data.status || '',
+      mediaType: type,
+      // TV specific
+      numberOfSeasons: data.number_of_seasons || null,
+      numberOfEpisodes: data.number_of_episodes || null,
+      // Movie specific
+      budget: data.budget || null,
+      revenue: data.revenue || null,
+      // Credits
+      cast: (data.credits?.cast || []).slice(0, 10).map(actor => ({
+        name: actor.name,
+        character: actor.character,
+        profilePath: actor.profile_path ? `https://image.tmdb.org/t/p/w185${actor.profile_path}` : null
+      })),
+      crew: (data.credits?.crew || []).slice(0, 5).map(member => ({
+        name: member.name,
+        job: member.job
+      })),
+      // Videos
+      trailers: (data.videos?.results || [])
+        .filter(v => v.type === 'Trailer' && v.site === 'YouTube')
+        .slice(0, 3)
+        .map(v => ({
+          key: v.key,
+          name: v.name,
+          type: v.type
+        }))
+    };
+    
+    console.log(`[API] Fetched media details for: ${details.title}`);
+    res.json(details);
+  } catch (error) {
+    console.error('[API] Error fetching media details:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch media details' });
+  }
+});
+
 // Helper function to determine content type
 function getContentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();

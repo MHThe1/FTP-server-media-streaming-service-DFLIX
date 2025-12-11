@@ -122,6 +122,9 @@ const MediaPlayerComponent = ({ file }) => {
   })
   const [codecWarning, setCodecWarning] = useState(null)
   const [isUnsupportedFormat, setIsUnsupportedFormat] = useState(false)
+  const [mediaDetails, setMediaDetails] = useState(null)
+  const [loadingMediaDetails, setLoadingMediaDetails] = useState(false)
+  const [showMediaDetails, setShowMediaDetails] = useState(false)
   const playerRef = useRef(null)
   const subtitleStyleRef = useRef(null)
   const playerContainerRef = useRef(null)
@@ -312,7 +315,68 @@ const MediaPlayerComponent = ({ file }) => {
         console.error("Error loading file info:", err)
         setError(err.message)
       })
+
+    // Load media details if it's a video file
+    if (isVideo || hasVideoKeywords || (isLargeFile && !isAudio)) {
+      loadMediaDetails(file.name)
+    } else {
+      setMediaDetails(null)
+    }
   }, [file])
+
+  // Extract media name from filename (similar to subtitle extraction)
+  const extractMediaName = (filename) => {
+    let name = filename
+      .replace(/\([0-9]{4}\)/, '') // Remove year
+      .replace(/S\d{2}E\d{2}/gi, '') // Remove season/episode
+      .replace(/Season\s*\d+/gi, '') // Remove season
+      .replace(/Episode\s*\d+/gi, '') // Remove episode
+      .replace(/WEBRip|DVDRip|BluRay|HDTV|x264|x265|HEVC|H264|1080p|720p|480p|2160p|4K/gi, '')
+      .replace(/\.mkv|\.mp4|\.avi|\.mov|\.webm/gi, '')
+      .replace(/[._]/g, ' ')
+      .trim()
+    const words = name.split(' ').filter(w => w.length > 0)
+    return words.slice(0, 5).join(' ')
+  }
+
+  // Load media details from TMDB
+  const loadMediaDetails = async (fileName) => {
+    if (!fileName) return
+
+    setLoadingMediaDetails(true)
+    setMediaDetails(null)
+
+    try {
+      const mediaName = extractMediaName(fileName)
+      if (!mediaName || mediaName.length < 3) {
+        setLoadingMediaDetails(false)
+        return
+      }
+
+      // Search for media
+      const searchResults = await api.searchMedia(mediaName, 'multi')
+      if (!searchResults.results || searchResults.results.length === 0) {
+        setLoadingMediaDetails(false)
+        return
+      }
+
+      // Get the first result
+      const firstResult = searchResults.results[0]
+      if (!firstResult.id) {
+        setLoadingMediaDetails(false)
+        return
+      }
+
+      // Fetch detailed information
+      const details = await api.getMediaDetails(firstResult.id, firstResult.mediaType)
+      setMediaDetails(details)
+    } catch (err) {
+      console.error('Error loading media details:', err)
+      // Silently fail - media details are optional
+    } finally {
+      setLoadingMediaDetails(false)
+    }
+  }
 
   // Apply subtitle styles - must be before early returns
   useEffect(() => {
@@ -928,18 +992,6 @@ ${streamUrl}
     if (!isVideo || !file) return
 
     try {
-      // Extract media name for subtitle search
-      const extractMediaName = (filename) => {
-        let name = filename
-          .replace(/\([0-9]{4}\)/, '')
-          .replace(/WEBRip|DVDRip|BluRay|HDTV|x264|x265|HEVC|H264|1080p|720p|480p/gi, '')
-          .replace(/\.mkv|\.mp4|\.avi|\.mov|\.webm/gi, '')
-          .replace(/[._]/g, ' ')
-          .trim()
-        const words = name.split(' ').filter(w => w.length > 0)
-        return words.slice(0, 5).join(' ')
-      }
-
       const mediaName = extractMediaName(file.name)
       if (!mediaName || mediaName.length < 3) return
 
@@ -1104,11 +1156,41 @@ ${streamUrl}
               <h3 className="m-0 text-base sm:text-lg md:text-xl text-white flex-1 break-words font-medium drop-shadow-lg">
                 {decodeHtmlEntities(file.name)}
               </h3>
+              {mediaDetails && (
+                <button
+                  onClick={() => setShowMediaDetails(true)}
+                  className="ml-3 px-3 py-1.5 bg-[#e50914]/80 hover:bg-[#e50914] text-white rounded text-xs sm:text-sm font-semibold transition-colors flex items-center gap-1.5"
+                  title="View movie/series details"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 16v-4M12 8h.01"/>
+                  </svg>
+                  <span className="hidden sm:inline">Details</span>
+                </button>
+              )}
+              {loadingMediaDetails && (
+                <div className="ml-3 px-3 py-1.5 text-white/70 text-xs sm:text-sm">
+                  Loading details...
+                </div>
+              )}
             </div>
             {fileInfo && (
               <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-5 text-xs text-white/70 font-mono items-start sm:items-center pointer-events-auto">
                 <span>Size: {formatSize(fileInfo.size)}</span>
                 {fileInfo.modified && <span className="hidden sm:inline">Modified: {new Date(fileInfo.modified).toLocaleString()}</span>}
+                {mediaDetails && (
+                  <>
+                    <span className="hidden sm:inline">•</span>
+                    <span className="hidden sm:inline">{mediaDetails.title} ({new Date(mediaDetails.releaseDate).getFullYear()})</span>
+                    {mediaDetails.rating > 0 && (
+                      <>
+                        <span className="hidden sm:inline">•</span>
+                        <span className="hidden sm:inline">⭐ {mediaDetails.rating.toFixed(1)}</span>
+                      </>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1184,6 +1266,177 @@ ${streamUrl}
            </div>
          )}
       </MediaPlayer>
+      {/* Media Details Modal */}
+      {showMediaDetails && mediaDetails && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/80 z-[99998]"
+            onClick={() => setShowMediaDetails(false)}
+          />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#1a1a1a] border border-[#444] rounded-lg shadow-lg w-[95vw] sm:w-[800px] max-w-[95vw] max-h-[90vh] overflow-y-auto z-[99999]">
+            <div className="relative">
+              {/* Backdrop */}
+              {mediaDetails.backdropPath && (
+                <div className="relative h-48 sm:h-64 overflow-hidden rounded-t-lg">
+                  <img
+                    src={mediaDetails.backdropPath}
+                    alt={mediaDetails.title}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/50 to-black/90" />
+                </div>
+              )}
+              
+              {/* Close button */}
+              <button
+                onClick={() => setShowMediaDetails(false)}
+                className="absolute top-4 right-4 w-8 h-8 bg-black/70 hover:bg-black/90 text-white rounded-full flex items-center justify-center transition-colors z-10"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+
+              <div className="p-4 sm:p-6">
+                {/* Header with poster */}
+                <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 mb-4">
+                  {mediaDetails.posterPath && (
+                    <img
+                      src={mediaDetails.posterPath}
+                      alt={mediaDetails.title}
+                      className="w-32 sm:w-40 h-auto rounded-lg shadow-lg flex-shrink-0 mx-auto sm:mx-0"
+                    />
+                  )}
+                  <div className="flex-1">
+                    <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white mb-2">
+                      {mediaDetails.title}
+                    </h2>
+                    {mediaDetails.originalTitle !== mediaDetails.title && (
+                      <p className="text-sm sm:text-base text-white/70 mb-2">
+                        {mediaDetails.originalTitle}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-white/80 mb-3">
+                      {mediaDetails.releaseDate && (
+                        <span>{new Date(mediaDetails.releaseDate).getFullYear()}</span>
+                      )}
+                      {mediaDetails.runtime && (
+                        <>
+                          <span>•</span>
+                          <span>{Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m</span>
+                        </>
+                      )}
+                      {mediaDetails.mediaType === 'tv' && mediaDetails.numberOfSeasons && (
+                        <>
+                          <span>•</span>
+                          <span>{mediaDetails.numberOfSeasons} Season{mediaDetails.numberOfSeasons !== 1 ? 's' : ''}</span>
+                        </>
+                      )}
+                      {mediaDetails.rating > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <span>⭐</span>
+                            <span className="font-semibold">{mediaDetails.rating.toFixed(1)}</span>
+                            {mediaDetails.voteCount > 0 && (
+                              <span className="text-white/60">({mediaDetails.voteCount.toLocaleString()})</span>
+                            )}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {mediaDetails.genres && mediaDetails.genres.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {mediaDetails.genres.map((genre, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-1 bg-[#e50914]/20 text-[#e50914] rounded text-xs sm:text-sm border border-[#e50914]/30"
+                          >
+                            {genre}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Overview */}
+                {mediaDetails.overview && (
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-white mb-2">Overview</h3>
+                    <p className="text-sm sm:text-base text-white/80 leading-relaxed">
+                      {mediaDetails.overview}
+                    </p>
+                  </div>
+                )}
+
+                {/* Additional Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  {mediaDetails.status && (
+                    <div>
+                      <span className="text-xs sm:text-sm text-white/60">Status: </span>
+                      <span className="text-xs sm:text-sm text-white/80">{mediaDetails.status}</span>
+                    </div>
+                  )}
+                  {mediaDetails.mediaType === 'tv' && mediaDetails.numberOfEpisodes && (
+                    <div>
+                      <span className="text-xs sm:text-sm text-white/60">Episodes: </span>
+                      <span className="text-xs sm:text-sm text-white/80">{mediaDetails.numberOfEpisodes}</span>
+                    </div>
+                  )}
+                  {mediaDetails.tagline && (
+                    <div className="sm:col-span-2">
+                      <p className="text-sm italic text-white/70">"{mediaDetails.tagline}"</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cast */}
+                {mediaDetails.cast && mediaDetails.cast.length > 0 && (
+                  <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-white mb-3">Cast</h3>
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {mediaDetails.cast.map((actor, idx) => (
+                        <div key={idx} className="flex-shrink-0 text-center w-24 sm:w-28">
+                          {actor.profilePath ? (
+                            <img
+                              src={actor.profilePath}
+                              alt={actor.name}
+                              className="w-20 sm:w-24 h-20 sm:h-24 rounded-full object-cover mb-2 mx-auto"
+                            />
+                          ) : (
+                            <div className="w-20 sm:w-24 h-20 sm:h-24 rounded-full bg-[#333] mb-2 mx-auto flex items-center justify-center">
+                              <span className="text-white/50 text-xs">No Image</span>
+                            </div>
+                          )}
+                          <p className="text-xs sm:text-sm text-white font-medium truncate">{actor.name}</p>
+                          <p className="text-xs text-white/60 truncate">{actor.character}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Crew */}
+                {mediaDetails.crew && mediaDetails.crew.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-white mb-3">Crew</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {mediaDetails.crew.map((member, idx) => (
+                        <div key={idx} className="text-sm text-white/80">
+                          <span className="font-medium">{member.name}</span>
+                          <span className="text-white/60"> - {member.job}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
